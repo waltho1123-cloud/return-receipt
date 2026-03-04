@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>退貨單 OCR 辨識系統</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg: #f0f4f8;
+      --color-text: #1e293b;
+      --color-text-secondary: #64748b;
+      --color-text-muted: #94a3b8;
+      --color-accent: #3b82f6;
+      --color-accent-hover: #2563eb;
+      --color-highlight: #6366f1;
+      --color-warning: #ef4444;
+      --color-glass: rgba(255, 255, 255, 0.65);
+      --color-glass-border: rgba(255, 255, 255, 0.5);
+      --color-glass-hover: rgba(255, 255, 255, 0.8);
+      --blur: 16px;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow-neu:
+        6px 6px 16px rgba(163, 177, 198, 0.28),
+        -6px -6px 16px rgba(255, 255, 255, 0.7);
+      --shadow-neu-sm:
+        3px 3px 8px rgba(163, 177, 198, 0.2),
+        -3px -3px 8px rgba(255, 255, 255, 0.6);
+      --shadow-neu-inset:
+        inset 2px 2px 6px rgba(163, 177, 198, 0.2),
+        inset -2px -2px 6px rgba(255, 255, 255, 0.7);
+      --transition: 0.25s ease-out;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--color-bg);
+      background-image:
+        radial-gradient(at 20% 80%, rgba(99, 102, 241, 0.07) 0%, transparent 50%),
+        radial-gradient(at 80% 20%, rgba(59, 130, 246, 0.07) 0%, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(139, 92, 246, 0.04) 0%, transparent 60%);
+      min-height: 100vh;
+      padding: 28px 20px;
+      color: var(--color-text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      color: var(--color-text-secondary);
+      font-size: 0.85rem;
+      font-weight: 400;
+    }
+
+    /* Glass Card Mixin */
+    .glass-card {
+      background: var(--color-glass);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border: 1px solid var(--color-glass-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-neu);
+    }
+
+    /* Upload Area */
+    .upload-area {
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      position: relative;
+    }
+
+    .upload-area:hover,
+    .upload-area.dragover {
+      background: var(--color-glass-hover);
+      box-shadow:
+        8px 8px 24px rgba(163, 177, 198, 0.32),
+        -8px -8px 24px rgba(255, 255, 255, 0.8);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    .upload-area.has-preview {
+      padding: 20px;
+    }
+
+    .upload-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 16px;
+      color: var(--color-text-muted);
+    }
+
+    .upload-text {
+      color: var(--color-text-secondary);
+      font-size: 0.95rem;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .upload-hint {
+      color: var(--color-text-muted);
+      font-size: 0.78rem;
+      font-weight: 400;
+    }
+
+    .upload-area input[type="file"] {
+      display: none;
+    }
+
+    /* Preview */
+    .preview-wrapper {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .preview-wrapper.show { display: flex; }
+
+    .preview-wrapper img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: var(--radius-sm);
+      object-fit: contain;
+    }
+
+    .file-name {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      word-break: break-all;
+      font-weight: 400;
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+      justify-content: center;
+    }
+
+    button {
+      padding: 12px 28px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition);
+      outline: none;
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    button:active { transform: scale(0.97); }
+
+    .btn-submit {
+      background: var(--color-accent);
+      color: #fff;
+      box-shadow:
+        3px 3px 10px rgba(59, 130, 246, 0.25),
+        -2px -2px 8px rgba(255, 255, 255, 0.4);
+    }
+
+    .btn-submit:hover {
+      background: var(--color-accent-hover);
+      box-shadow:
+        4px 4px 14px rgba(59, 130, 246, 0.35),
+        -2px -2px 8px rgba(255, 255, 255, 0.5);
+    }
+
+    .btn-submit:disabled {
+      background: #cbd5e1;
+      color: #94a3b8;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-reset {
+      background: rgba(255, 255, 255, 0.6);
+      color: var(--color-text-secondary);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      box-shadow: var(--shadow-neu-sm);
+    }
+
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.85);
+      color: var(--color-text);
+    }
+
+    /* Loading */
+    .loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .loading.show { display: flex; }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(59, 130, 246, 0.15);
+      border-top-color: var(--color-accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+      color: var(--color-text-secondary);
+      font-size: 0.88rem;
+      font-weight: 400;
+    }
+
+    /* Result Card */
+    .result-card {
+      display: none;
+      margin-top: 24px;
+      overflow: hidden;
+    }
+
+    .result-card.show { display: block; }
+
+    .result-header {
+      background: linear-gradient(135deg, var(--color-accent), var(--color-highlight));
+      color: #fff;
+      padding: 16px 24px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    .result-body {
+      padding: 8px 24px 16px;
+      background: var(--color-glass);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border: 1px solid var(--color-glass-border);
+      border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+      box-shadow:
+        0 8px 24px rgba(163, 177, 198, 0.18),
+        0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .result-row {
+      display: flex;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+      align-items: center;
+    }
+
+    .result-row:last-child { border-bottom: none; }
+
+    .result-label {
+      flex: 0 0 130px;
+      color: var(--color-text-muted);
+      font-size: 0.8rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .result-label svg {
+      flex-shrink: 0;
+      opacity: 0.6;
+    }
+
+    .result-value {
+      flex: 1;
+      font-size: 0.9rem;
+      color: var(--color-text);
+      word-break: break-all;
+      font-weight: 400;
+    }
+
+    .result-value.highlight {
+      color: var(--color-accent);
+      font-weight: 600;
+    }
+
+    .result-value.warning {
+      color: var(--color-warning);
+    }
+
+    /* Error */
+    .error-msg {
+      display: none;
+      background: rgba(254, 226, 226, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #b91c1c;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(252, 165, 165, 0.4);
+      padding: 14px 20px;
+      margin-top: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .error-msg.show { display: block; }
+
+    /* History */
+    .history-section {
+      margin-top: 36px;
+    }
+
+    .history-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .history-clear {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 4px 10px;
+      font-weight: 500;
+      font-family: 'Inter', sans-serif;
+      border-radius: 6px;
+      transition: all var(--transition);
+    }
+
+    .history-clear:hover {
+      color: var(--color-warning);
+      background: rgba(239, 68, 68, 0.06);
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-item {
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.83rem;
+      box-shadow: var(--shadow-neu-sm);
+      transition: all var(--transition);
+    }
+
+    .history-item:hover {
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .history-item .order-id {
+      color: var(--color-accent);
+      font-weight: 600;
+    }
+
+    .history-item .meta {
+      color: var(--color-text-muted);
+      font-size: 0.75rem;
+      font-weight: 400;
+    }
+
+    /* Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      body { padding: 16px 12px; }
+      h1 { font-size: 1.25rem; }
+      .upload-area { padding: 36px 16px; }
+      .result-label { flex: 0 0 100px; font-size: 0.75rem; }
+      .result-body { padding: 6px 16px 12px; }
+      .result-header { padding: 14px 16px; }
+      button { padding: 10px 22px; font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>退貨單 OCR 辨識系統</h1>
+    <p class="subtitle">上傳退貨單據照片，自動辨識關鍵欄位</p>
+  </div>
+
+  <!-- Upload -->
+  <div class="upload-area glass-card" id="uploadArea">
+    <div id="uploadPlaceholder">
+      <div class="upload-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" x2="12" y1="3" y2="15"/>
+        </svg>
+      </div>
+      <div class="upload-text">點擊或拖曳上傳退貨單據</div>
+      <div class="upload-hint">支援 JPG / PNG / HEIC，建議 10MB 以內</div>
+    </div>
+    <div class="preview-wrapper" id="previewWrapper">
+      <img id="previewImg" src="" alt="預覽">
+      <div class="file-name" id="fileName"></div>
+    </div>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <!-- Buttons -->
+  <div class="btn-row" id="btnRow" style="display:none;">
+    <button class="btn-reset" id="btnReset">重新選擇</button>
+    <button class="btn-submit" id="btnSubmit">開始辨識</button>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">正在辨識中，請稍候...</div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Result -->
+  <div class="result-card" id="resultCard">
+    <div class="result-header" id="resultHeader">辨識結果</div>
+    <div class="result-body" id="resultBody"></div>
+  </div>
+
+  <!-- Buttons after result -->
+  <div class="btn-row" id="btnRowAfter" style="display:none;">
+    <button class="btn-submit" id="btnNext">上傳下一張</button>
+  </div>
+
+  <!-- History -->
+  <div class="history-section" id="historySection" style="display:none;">
+    <div class="history-title">
+      <span>本次辨識紀錄</span>
+      <button class="history-clear" id="btnClearHistory">清除</button>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</div>
+
+<script>
+  const WEBHOOK_URL = 'https://waltho1123.zeabur.app/webhook/return-label-ocr';
+
+  const uploadArea = document.getElementById('uploadArea');
+  const fileInput = document.getElementById('fileInput');
+  const previewWrapper = document.getElementById('previewWrapper');
+  const previewImg = document.getElementById('previewImg');
+  const fileNameEl = document.getElementById('fileName');
+  const uploadPlaceholder = document.getElementById('uploadPlaceholder');
+  const btnRow = document.getElementById('btnRow');
+  const btnSubmit = document.getElementById('btnSubmit');
+  const btnReset = document.getElementById('btnReset');
+  const btnNext = document.getElementById('btnNext');
+  const btnRowAfter = document.getElementById('btnRowAfter');
+  const loading = document.getElementById('loading');
+  const errorMsg = document.getElementById('errorMsg');
+  const resultCard = document.getElementById('resultCard');
+  const resultHeader = document.getElementById('resultHeader');
+  const resultBody = document.getElementById('resultBody');
+  const historySection = document.getElementById('historySection');
+  const historyList = document.getElementById('historyList');
+  const btnClearHistory = document.getElementById('btnClearHistory');
+
+  let selectedFile = null;
+  let history = [];
+
+  // SVG Icon Map (Lucide-style, 16x16)
+  const svgIcon = (paths) =>
+    `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+
+  const icons = {
+    calendar: svgIcon('<rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>'),
+    tag:      svgIcon('<path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/>'),
+    user:     svgIcon('<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+    store:    svgIcon('<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>'),
+    truck:    svgIcon('<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>'),
+    clipboard:svgIcon('<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>'),
+    barcode:  svgIcon('<path d="M3 5v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/>'),
+    message:  svgIcon('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
+    clock:    svgIcon('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  };
+
+  // Click to upload
+  uploadArea.addEventListener('click', () => {
+    if (!selectedFile) fileInput.click();
+  });
+
+  // Drag & drop
+  uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+
+  uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+  });
+
+  uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      handleFile(file);
+    }
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      previewImg.src = e.target.result;
+      previewWrapper.classList.add('show');
+      uploadPlaceholder.style.display = 'none';
+      uploadArea.classList.add('has-preview');
+      btnRow.style.display = 'flex';
+      hideError();
+      hideResult();
+    };
+    reader.readAsDataURL(file);
+    fileNameEl.textContent = file.name;
+  }
+
+  function resetUpload() {
+    selectedFile = null;
+    fileInput.value = '';
+    previewWrapper.classList.remove('show');
+    uploadPlaceholder.style.display = '';
+    uploadArea.classList.remove('has-preview');
+    btnRow.style.display = 'none';
+    btnRowAfter.style.display = 'none';
+    hideError();
+    hideResult();
+  }
+
+  btnReset.addEventListener('click', resetUpload);
+  btnNext.addEventListener('click', resetUpload);
+
+  // Submit
+  btnSubmit.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    btnSubmit.disabled = true;
+    btnRow.style.display = 'none';
+    loading.classList.add('show');
+    hideError();
+    hideResult();
+
+    try {
+      const formData = new FormData();
+      formData.append('data', selectedFile, selectedFile.name);
+
+      const res = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error(`伺服器回應錯誤 (${res.status})`);
+
+      const json = await res.json();
+
+      if (json.success) {
+        showResult(json.data);
+        addHistory(json.data);
+      } else {
+        showError(json.message || '辨識失敗，請重試');
+      }
+    } catch (err) {
+      showError('辨識失敗：' + err.message);
+    } finally {
+      loading.classList.remove('show');
+      btnSubmit.disabled = false;
+    }
+  });
+
+  const fieldConfig = [
+    { key: '取回日期',       icon: icons.calendar,  label: '取回日期' },
+    { key: '廠商訂單編號',   icon: icons.tag,       label: '訂單編號', cls: 'highlight' },
+    { key: '退貨人',         icon: icons.user,      label: '退貨人' },
+    { key: '平台',           icon: icons.store,     label: '平台' },
+    { key: '物流管道',       icon: icons.truck,     label: '物流管道' },
+    { key: '寄件編號',       icon: icons.clipboard, label: '寄件編號' },
+    { key: '交貨便服務代碼', icon: icons.barcode,   label: '交貨便代碼' },
+    { key: '辨識備註',       icon: icons.message,   label: '辨識備註', cls: 'warning' },
+  ];
+
+  function showResult(data) {
+    resultHeader.textContent = `辨識結果 — ${data['平台'] || ''} / ${data['物流管道'] || ''}`;
+    resultBody.innerHTML = '';
+
+    fieldConfig.forEach(({ key, icon, label, cls }) => {
+      const val = data[key] || '';
+      if (!val && (key === '辨識備註' || key === '交貨便服務代碼' || key === '寄件編號')) return;
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      row.innerHTML = `
+        <div class="result-label">${icon} ${label}</div>
+        <div class="result-value ${cls || ''}">${val || '未辨識'}</div>
+      `;
+      resultBody.appendChild(row);
+    });
+
+    if (data['辨識時間']) {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      row.innerHTML = `
+        <div class="result-label">${icons.clock} 辨識時間</div>
+        <div class="result-value" style="color:var(--color-text-muted);font-size:0.78rem;">${data['辨識時間']}</div>
+      `;
+      resultBody.appendChild(row);
+    }
+
+    resultCard.classList.add('show');
+    btnRowAfter.style.display = 'flex';
+  }
+
+  function hideResult() {
+    resultCard.classList.remove('show');
+    btnRowAfter.style.display = 'none';
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('show');
+    btnRow.style.display = 'flex';
+  }
+
+  function hideError() {
+    errorMsg.classList.remove('show');
+  }
+
+  // History
+  function addHistory(data) {
+    history.unshift({
+      orderId: data['廠商訂單編號'] || '—',
+      platform: data['平台'] || '',
+      date: data['取回日期'] || '',
+      time: data['辨識時間'] || '',
+    });
+    renderHistory();
+  }
+
+  function renderHistory() {
+    if (!history.length) {
+      historySection.style.display = 'none';
+      return;
+    }
+    historySection.style.display = '';
+    historyList.innerHTML = history.map(h => `
+      <div class="history-item">
+        <div>
+          <span class="order-id">${h.orderId}</span>
+          <span style="margin-left:8px;color:var(--color-text-muted);">${h.platform}</span>
+        </div>
+        <div class="meta">${h.date} | ${h.time}</div>
+      </div>
+    `).join('');
+  }
+
+  btnClearHistory.addEventListener('click', () => {
+    history = [];
+    renderHistory();
+  });
+</script>
+
+</body>
+</html>
