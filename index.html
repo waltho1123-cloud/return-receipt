@@ -320,6 +320,11 @@
       color: var(--color-warning);
     }
 
+    .result-value.muted {
+      color: var(--color-text-muted);
+      font-size: 0.78rem;
+    }
+
     /* Error */
     .error-msg {
       display: none;
@@ -435,10 +440,10 @@
   </div>
 
   <!-- Upload -->
-  <div class="upload-area glass-card" id="uploadArea">
+  <div class="upload-area glass-card" id="uploadArea" role="button" tabindex="0" aria-label="上傳退貨單據">
     <div id="uploadPlaceholder">
       <div class="upload-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" x2="12" y1="3" y2="15"/>
@@ -461,13 +466,13 @@
   </div>
 
   <!-- Loading -->
-  <div class="loading" id="loading">
-    <div class="spinner"></div>
+  <div class="loading" id="loading" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
     <div class="loading-text">正在辨識中，請稍候...</div>
   </div>
 
   <!-- Error -->
-  <div class="error-msg" id="errorMsg"></div>
+  <div class="error-msg" id="errorMsg" role="alert" aria-live="assertive"></div>
 
   <!-- Result -->
   <div class="result-card" id="resultCard">
@@ -513,8 +518,14 @@
   const historyList = document.getElementById('historyList');
   const btnClearHistory = document.getElementById('btnClearHistory');
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_HISTORY = 50;
+  const FETCH_TIMEOUT = 30000; // 30s
+
   let selectedFile = null;
-  let history = [];
+  let previewUrl = null;
+  let ocrRecords = [];
+  let abortController = null;
 
   // SVG Icon Map (Lucide-style, 16x16)
   const svgIcon = (paths) =>
@@ -532,9 +543,22 @@
     clock:    svgIcon('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
   };
 
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   // Click to upload
   uploadArea.addEventListener('click', () => {
     if (!selectedFile) fileInput.click();
+  });
+
+  uploadArea.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && !selectedFile) {
+      e.preventDefault();
+      fileInput.click();
+    }
   });
 
   // Drag & drop
@@ -561,29 +585,32 @@
   });
 
   function handleFile(file) {
+    if (file.size > MAX_FILE_SIZE) {
+      showError(`檔案過大（${(file.size / 1024 / 1024).toFixed(1)}MB），請選擇 10MB 以內的圖片`);
+      return;
+    }
     selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      previewImg.src = e.target.result;
-      previewWrapper.classList.add('show');
-      uploadPlaceholder.style.display = 'none';
-      uploadArea.classList.add('has-preview');
-      btnRow.style.display = 'flex';
-      hideError();
-      hideResult();
-    };
-    reader.readAsDataURL(file);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(file);
+    previewImg.src = previewUrl;
+    previewWrapper.classList.add('show');
+    uploadPlaceholder.style.display = 'none';
+    uploadArea.classList.add('has-preview');
+    btnRow.style.display = 'flex';
     fileNameEl.textContent = file.name;
+    hideError();
+    hideResult();
   }
 
   function resetUpload() {
     selectedFile = null;
     fileInput.value = '';
+    if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+    previewImg.src = '';
     previewWrapper.classList.remove('show');
     uploadPlaceholder.style.display = '';
     uploadArea.classList.remove('has-preview');
     btnRow.style.display = 'none';
-    btnRowAfter.style.display = 'none';
     hideError();
     hideResult();
   }
@@ -593,13 +620,16 @@
 
   // Submit
   btnSubmit.addEventListener('click', async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || btnSubmit.disabled) return;
 
     btnSubmit.disabled = true;
     btnRow.style.display = 'none';
     loading.classList.add('show');
     hideError();
     hideResult();
+
+    abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), FETCH_TIMEOUT);
 
     try {
       const formData = new FormData();
@@ -608,11 +638,14 @@
       const res = await fetch(WEBHOOK_URL, {
         method: 'POST',
         body: formData,
+        signal: abortController.signal,
       });
 
       if (!res.ok) throw new Error(`伺服器回應錯誤 (${res.status})`);
 
-      const json = await res.json();
+      let json;
+      try { json = await res.json(); }
+      catch { throw new Error('伺服器回應格式異常'); }
 
       if (json.success) {
         showResult(json.data);
@@ -621,8 +654,14 @@
         showError(json.message || '辨識失敗，請重試');
       }
     } catch (err) {
-      showError('辨識失敗：' + err.message);
+      if (err.name === 'AbortError') {
+        showError('辨識逾時，請檢查網路後重試');
+      } else {
+        showError('辨識失敗：' + err.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
+      abortController = null;
       loading.classList.remove('show');
       btnSubmit.disabled = false;
     }
@@ -634,36 +673,27 @@
     { key: '退貨人',         icon: icons.user,      label: '退貨人' },
     { key: '平台',           icon: icons.store,     label: '平台' },
     { key: '物流管道',       icon: icons.truck,     label: '物流管道' },
-    { key: '寄件編號',       icon: icons.clipboard, label: '寄件編號' },
-    { key: '交貨便服務代碼', icon: icons.barcode,   label: '交貨便代碼' },
-    { key: '辨識備註',       icon: icons.message,   label: '辨識備註', cls: 'warning' },
+    { key: '寄件編號',       icon: icons.clipboard, label: '寄件編號', optional: true },
+    { key: '交貨便服務代碼', icon: icons.barcode,   label: '交貨便代碼', optional: true },
+    { key: '辨識備註',       icon: icons.message,   label: '辨識備註', cls: 'warning', optional: true },
+    { key: '辨識時間',       icon: icons.clock,     label: '辨識時間', cls: 'muted', optional: true },
   ];
 
   function showResult(data) {
     resultHeader.textContent = `辨識結果 — ${data['平台'] || ''} / ${data['物流管道'] || ''}`;
     resultBody.innerHTML = '';
 
-    fieldConfig.forEach(({ key, icon, label, cls }) => {
+    fieldConfig.forEach(({ key, icon, label, cls, optional }) => {
       const val = data[key] || '';
-      if (!val && (key === '辨識備註' || key === '交貨便服務代碼' || key === '寄件編號')) return;
+      if (!val && optional) return;
       const row = document.createElement('div');
       row.className = 'result-row';
       row.innerHTML = `
-        <div class="result-label">${icon} ${label}</div>
-        <div class="result-value ${cls || ''}">${val || '未辨識'}</div>
+        <div class="result-label">${icon} ${escapeHtml(label)}</div>
+        <div class="result-value ${cls || ''}">${escapeHtml(val || '未辨識')}</div>
       `;
       resultBody.appendChild(row);
     });
-
-    if (data['辨識時間']) {
-      const row = document.createElement('div');
-      row.className = 'result-row';
-      row.innerHTML = `
-        <div class="result-label">${icons.clock} 辨識時間</div>
-        <div class="result-value" style="color:var(--color-text-muted);font-size:0.78rem;">${data['辨識時間']}</div>
-      `;
-      resultBody.appendChild(row);
-    }
 
     resultCard.classList.add('show');
     btnRowAfter.style.display = 'flex';
@@ -686,34 +716,35 @@
 
   // History
   function addHistory(data) {
-    history.unshift({
+    ocrRecords.unshift({
       orderId: data['廠商訂單編號'] || '—',
       platform: data['平台'] || '',
       date: data['取回日期'] || '',
       time: data['辨識時間'] || '',
     });
+    if (ocrRecords.length > MAX_HISTORY) ocrRecords.length = MAX_HISTORY;
     renderHistory();
   }
 
   function renderHistory() {
-    if (!history.length) {
+    if (!ocrRecords.length) {
       historySection.style.display = 'none';
       return;
     }
     historySection.style.display = '';
-    historyList.innerHTML = history.map(h => `
+    historyList.innerHTML = ocrRecords.map(h => `
       <div class="history-item">
         <div>
-          <span class="order-id">${h.orderId}</span>
-          <span style="margin-left:8px;color:var(--color-text-muted);">${h.platform}</span>
+          <span class="order-id">${escapeHtml(h.orderId)}</span>
+          <span style="margin-left:8px;color:var(--color-text-muted);">${escapeHtml(h.platform)}</span>
         </div>
-        <div class="meta">${h.date} | ${h.time}</div>
+        <div class="meta">${escapeHtml(h.date)} | ${escapeHtml(h.time)}</div>
       </div>
     `).join('');
   }
 
   btnClearHistory.addEventListener('click', () => {
-    history = [];
+    ocrRecords = [];
     renderHistory();
   });
 </script>
