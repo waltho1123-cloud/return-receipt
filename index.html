@@ -641,11 +641,21 @@
         signal: abortController.signal,
       });
 
-      if (!res.ok) throw new Error(`伺服器回應錯誤 (${res.status})`);
+      const responseText = await res.text();
+
+      if (!res.ok) {
+        throw new Error(`伺服器回應錯誤 (${res.status})：${responseText.substring(0, 200)}`);
+      }
+
+      if (!responseText || !responseText.trim()) {
+        throw new Error('伺服器回傳空白回應，請確認 n8n 工作流程是否正常運作（檢查 Webhook 衝突或 OpenAI API 憑證）');
+      }
 
       let json;
-      try { json = await res.json(); }
-      catch { throw new Error('伺服器回應格式異常'); }
+      try { json = JSON.parse(responseText); }
+      catch {
+        throw new Error(`伺服器回應格式異常：${responseText.substring(0, 200)}`);
+      }
 
       if (json.success) {
         showResult(json.data);
@@ -673,6 +683,7 @@
     { key: '退貨人',         icon: icons.user,      label: '退貨人' },
     { key: '平台',           icon: icons.store,     label: '平台' },
     { key: '物流管道',       icon: icons.truck,     label: '物流管道' },
+    { key: '退貨商品',       icon: icons.tag,       label: '退貨商品', optional: true },
     { key: '寄件編號',       icon: icons.clipboard, label: '寄件編號', optional: true },
     { key: '交貨便服務代碼', icon: icons.barcode,   label: '交貨便代碼', optional: true },
     { key: '辨識備註',       icon: icons.message,   label: '辨識備註', cls: 'warning', optional: true },
